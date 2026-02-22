@@ -1,145 +1,118 @@
+from __future__ import annotations
+
+import os
+from typing import Any, Dict
+
+import requests
 import streamlit as st
 
-st.set_page_config(
-    page_title="Lightweight AI Coach Orchestrator",
-    page_icon="🎯",
-    layout="wide",
-)
+API_BASE_URL = os.getenv("COACH_API_URL", "http://localhost:8000")
+
+st.set_page_config(page_title="Lightweight AI Coach Orchestrator", page_icon="🎯", layout="wide")
+
+if "session_id" not in st.session_state:
+    st.session_state.session_id = None
+if "coach" not in st.session_state:
+    st.session_state.coach = "-"
+
 
 CUSTOM_CSS = """
 <style>
-.main {
-    background: linear-gradient(180deg, #f5f7ff 0%, #ffffff 35%, #f8fbff 100%);
-}
-.hero {
-    padding: 2rem 2.2rem;
-    border-radius: 20px;
-    background: linear-gradient(120deg, #1d4ed8 0%, #2563eb 35%, #4f46e5 100%);
-    color: white;
-    box-shadow: 0 15px 45px rgba(37, 99, 235, 0.25);
-    margin-bottom: 1.2rem;
-}
-.hero h1 {
-    margin-bottom: 0.5rem;
-}
-.card {
-    border-radius: 16px;
-    border: 1px solid #e2e8f0;
-    background: white;
-    padding: 1rem;
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
-    margin-bottom: 1rem;
-}
-.metric {
-    border-radius: 14px;
-    padding: 0.8rem;
-    text-align: center;
-    background: #eff6ff;
-    border: 1px solid #dbeafe;
-}
-.badge {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    background: #eef2ff;
-    color: #3730a3;
-    font-size: 0.75rem;
-    font-weight: 700;
-    margin-right: 0.4rem;
-}
-.small {
-    color: #475569;
-    font-size: 0.9rem;
-}
-.footer {
-    margin-top: 2rem;
-    text-align: center;
-    color: #64748b;
-    font-size: 0.85rem;
-}
+.hero {padding: 1.5rem 1.8rem; border-radius: 14px; background: linear-gradient(120deg,#1d4ed8,#4338ca); color: white; margin-bottom: 1rem;}
+.card {border-radius: 12px; border: 1px solid #e2e8f0; background: white; padding: 1rem; margin-bottom: .9rem;}
+.small {font-size:.86rem; color:#475569;}
 </style>
 """
 
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 st.markdown(
     """
-<div class="hero">
-  <h1>🎯 Lightweight AI Coach Orchestrator</h1>
-  <p>Personalized mentoring for students through coach personas, multilingual guidance,
-  and text/audio interactions — powered by FastAPI + Streamlit + Qdrant.</p>
+<div class='hero'>
+<h2>🎯 Lightweight AI Coach Orchestrator</h2>
+<p>Real backend-connected demo for student coaching across personas, tone, language, and goals.</p>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
+
+def call_api(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    response = requests.post(f"{API_BASE_URL}{path}", json=payload, timeout=15)
+    response.raise_for_status()
+    return response.json()
+
+
 left, right = st.columns([1.1, 0.9], gap="large")
 
 with left:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Start a Coaching Session")
-
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("1) Start Session")
     age_group = st.selectbox("Age group", ["Grade 6–8", "Grade 9–12"])
-    role = st.selectbox(
-        "Mentor role",
-        [
-            "Study Planner",
-            "Motivation Coach",
-            "Exam Strategist",
-            "Emotional Support Guide",
-        ],
-    )
+    role = st.selectbox("Mentor role", ["Study Planner", "Motivation Coach", "Exam Strategist", "Emotional Support Guide"])
     tone = st.select_slider("Tone", ["Calm", "Supportive", "Balanced", "Energetic"])
     language = st.selectbox("Language", ["English", "Hindi", "Tamil", "Kannada", "Bilingual"])
-    goal = st.text_area("Student Goal", "I want to build a 2-week math revision plan.")
-
-    coach = "Coach Tara" if age_group == "Grade 6–8" and role in ["Motivation Coach", "Emotional Support Guide"] else "Coach Ravi"
-
-    if st.button("Start Session", use_container_width=True, type="primary"):
-        st.success(f"Session created with **{coach}** in **{language}** using a **{tone}** tone.")
-
+    if st.button("Start Session", type="primary", use_container_width=True):
+        try:
+            res = call_api(
+                "/start_session",
+                {"age_group": age_group, "mentor_role": role, "tone": tone, "language": language},
+            )
+            st.session_state.session_id = res["session_id"]
+            st.session_state.coach = res["coach"]
+            st.success(f"Session: {res['session_id']} | Active coach: {res['coach']}")
+        except Exception as exc:
+            st.error(f"Could not start session: {exc}")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Live Chat Preview")
-    user_msg = st.text_input("Type a message", "I get distracted while studying. Help me focus.")
-    if st.button("Send Message", use_container_width=True):
-        st.info(f"You: {user_msg}")
-        st.success(
-            f"{coach}: Great honesty! Let's create a short focus sprint with breaks so you can stay consistent."
-        )
-    st.caption("Audio chat can be connected to `/audio_chat` using OpenAI Whisper transcription.")
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("2) Set Goal")
+    goal = st.text_area("Goal", "Complete a 2-week science revision plan")
+    if st.button("Save Goal", use_container_width=True, disabled=not st.session_state.session_id):
+        try:
+            call_api("/set_goal", {"session_id": st.session_state.session_id, "goal": goal})
+            st.success("Goal saved")
+        except Exception as exc:
+            st.error(f"Could not save goal: {exc}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("3) Chat")
+    message = st.text_input("Message", "I get distracted while studying.")
+    if st.button("Send", use_container_width=True, disabled=not st.session_state.session_id):
+        try:
+            res = call_api("/chat", {"session_id": st.session_state.session_id, "message": message})
+            st.info(f"Coach response: {res['reply']}")
+        except Exception as exc:
+            st.error(f"Chat failed: {exc}")
     st.markdown("</div>", unsafe_allow_html=True)
 
 with right:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Why this experience works")
-    st.markdown(
-        """
-- **Persona-routing** selects the right coach based on age + role.
-- **Adaptive tone and language** make responses relatable.
-- **Session memory (Qdrant)** stores goals and context.
-- **Text + audio** interactions support diverse learning styles.
-"""
-    )
-    st.markdown("<span class='badge'>FastAPI</span><span class='badge'>Streamlit</span><span class='badge'>Qdrant</span><span class='badge'>Whisper</span>", unsafe_allow_html=True)
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("Session Status")
+    st.write(f"**API:** {API_BASE_URL}")
+    st.write(f"**Session ID:** {st.session_state.session_id or '-'}")
+    st.write(f"**Current Coach:** {st.session_state.coach}")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("System Endpoints")
-    st.code(
-        """POST /start_session
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("Switch Coach")
+    switch_role = st.selectbox("New mentor role", ["Study Planner", "Motivation Coach", "Exam Strategist", "Emotional Support Guide"])
+    if st.button("Switch", use_container_width=True, disabled=not st.session_state.session_id):
+        try:
+            res = call_api("/switch_coach", {"session_id": st.session_state.session_id, "mentor_role": switch_role})
+            st.session_state.coach = res["coach"]
+            st.success(f"Switched to {res['coach']}")
+        except Exception as exc:
+            st.error(f"Switch failed: {exc}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("API endpoints")
+    st.code("""POST /start_session
 POST /set_goal
 POST /chat
 POST /switch_coach
-POST /audio_chat""",
-        language="bash",
-    )
-    st.markdown("<p class='small'>Designed for modular upgrades: text-to-speech, avatars, and analytics can be added later.</p>", unsafe_allow_html=True)
+GET  /health""")
+    st.markdown("<p class='small'>Audio endpoint can be added at /audio_chat using Whisper transcription.</p>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
-
-    c1, c2 = st.columns(2)
-    c1.markdown("<div class='metric'><h3>2</h3><p>Coach Personas</p></div>", unsafe_allow_html=True)
-    c2.markdown("<div class='metric'><h3>5</h3><p>Core API Routes</p></div>", unsafe_allow_html=True)
-
-st.markdown('<p class="footer">Built for student-first, low-friction AI coaching journeys.</p>', unsafe_allow_html=True)
